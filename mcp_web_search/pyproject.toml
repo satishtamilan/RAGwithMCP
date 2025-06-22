@@ -1,0 +1,10 @@
+[project]
+name = "mcp-search-server"
+version = "0.1.0"
+description = "A simple MCP server for searching topics"
+
+dependencies = [
+    "mcp>=0.1.0",
+    "httpx>=0.24.0",
+    "fastapi>=0.115.12",
+]

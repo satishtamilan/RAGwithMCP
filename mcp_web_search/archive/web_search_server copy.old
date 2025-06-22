@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""
+Simple MCP Server for Topic Search (HTTP Version)
+This server provides a search tool that can search for information about a given topic
+via JSON-RPC 2.0 over HTTP at a specified host/port.
+"""
+
+import asyncio
+import json
+import logging
+from typing import Any, Dict, List
+import httpx
+import uvicorn
+from fastapi import FastAPI, Request
+from mcp.types import Tool, TextContent
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+HTTP_HOST = "0.0.0.0"
+HTTP_PORT = 8000
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting MCP Search Server...")
+    print(f"MCP Search Server HTTP listening at: http://{HTTP_HOST if HTTP_HOST != '0.0.0.0' else 'localhost'}:{HTTP_PORT}/", flush=True)
+
+@app.post("/")
+async def mcp_entrypoint(request: Request):
+    """Main MCP JSON-RPC endpoint."""
+    body = await request.body()
+    try:
+        rpc = json.loads(body)
+    except Exception:
+        response = {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}
+        logger.info(f"Response: {json.dumps(response, indent=2)}")
+        return response
+    method = rpc.get("method", "")
+    response = {"jsonrpc": "2.0", "id": rpc.get("id")}
+
+    if method == "initialize":
+        response["result"] = {"server": "search-server"}
+        logger.info("Initialization received.")
+    elif method == "list_tools":
+        response["result"] = await list_tools()
+        logger.info("Tool list served.")
+    elif method == "search":
+        params = rpc.get("params", {})
+        topic = params.get("query", params.get("topic", ""))
+        if not topic:
+            response["error"] = {"code": -32602, "message": "Missing 'query' or 'topic' parameter."}
+            logger.warning("Search call with missing topic/query parameter.")
+        else:
+            logger.info(f"Received search for topic: {topic}")
+            result = await search_for_topic(topic)
+            response["result"] = result
+    elif method == "shutdown":
+        response["result"] = "Server shutdown initiated (not actually shutting down in this demo)."
+        logger.info("Shutdown requested (ignored in HTTP version).")
+    else:
+        response["error"] = {"code": -32601, "message": f"Method '{method}' not found."}
+        logger.warning(f"Unknown method '{method}' requested by client.")
+    # LOG THE RESPONSE
+    logger.info(f"Response: {json.dumps(response, indent=2)}")
+    return response
+
+async def list_tools() -> List[dict]:
+    return [
+        {
+            "name": "search_topic",
+            "description": "Search for information about a specific topic",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "The topic to search for"},
+                    "max_results": {"type": "integer", "description": "Maximum number of results to return", "default": 5}
+                },
+                "required": ["topic"]
+            }
+        }
+    ]
+
+import os
+
+SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "YOUR_SERPAPI_KEY")
+SERPAPI_URL = "https://serpapi.com/search"
+
+async def search_for_topic(topic: str, max_results: int = 5) -> str:
+    """
+    Search for information about a topic using SerpAPI.
+    """
+    if not SERPAPI_KEY or SERPAPI_KEY == "YOUR_SERPAPI_KEY":
+        return "No SerpAPI key found. Set the SERPAPI_KEY environment variable."
+    try:
+        async with httpx.AsyncClient() as client:
+            params = {
+                "api_key": SERPAPI_KEY,
+                "engine": "google",
+                "q": topic,
+                "num": max_results
+            }
+            response = await client.get(SERPAPI_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+            results = []
+            organic_results = data.get("organic_results", [])
+            if organic_results:
+                for i, item in enumerate(organic_results[:max_results]):
+                    results.append(f"{i+1}. {item.get('title')}\n{item.get('link')}\n{item.get('snippet', '')}\n")
+            else:
+                return f"No specific information found for '{topic}'. Try searching with different keywords."
+            return "\n".join(results)
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error occurred: {e}")
+        return f"Failed to search for '{topic}' due to network error"
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return f"An unexpected error occurred while searching for '{topic}'"
+
+if __name__ == "__main__":
+    print("[INFO] MCP Search Server is starting...", flush=True)
+    uvicorn.run("web_search_server:app", host=HTTP_HOST, port=HTTP_PORT, log_level="info")
