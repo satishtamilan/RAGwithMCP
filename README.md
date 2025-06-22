@@ -30,19 +30,7 @@ You can read the other 2 parts here
    export MCP_ENDPOINT="http://localhost:8000"  # Optional
    ```
 
-3. **Use the system**:
-   ```python
-   from agentic_rag_mcp import RAGOrchestrator
-   
-   rag = RAGOrchestrator()
-   rag.ingest('document.pdf')
-   
-   # Document-based query
-   answer = rag.query("What is the main topic?")
-   
-   # May trigger web search
-   answer = rag.query("What are the latest developments?")
-   ```
+
 
 ## How It Works
 
@@ -52,16 +40,6 @@ You can read the other 2 parts here
 4. **Web Search**: If needed, searches web via MCP server
 5. **Answer Generation**: Combines document and web contexts
 
-## Configuration
-
-```python
-rag = RAGOrchestrator(
-    n_candidates=3,        # Number of retrieval candidates
-    k=5,                   # Chunks per candidate
-    mcp_endpoint="http://localhost:8000",
-    mcp_apikey="your-key"
-)
-```
 
 ## Architecture
 
@@ -70,6 +48,8 @@ rag = RAGOrchestrator(
 - **RetrievalAgent**: Multi-candidate document search
 - **RankingAgent**: LLM-based answer selection
 - **Tool Calling**: LLM decides when to search web
+
+Read the blog for more details
 
 ## Requirements
 
