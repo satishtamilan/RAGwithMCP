@@ -194,6 +194,22 @@ class RAGOrchestrator:
         self.retriever = RetrievalAgent(self.embedder.index)
         print(f"[RAGOrchestrator] Ingestion complete with {len(self.text_chunks)} chunks")
 
+    def ingest_multiple(self, pdf_paths: List[str]):
+        """Ingest multiple PDF files into the same vector index."""
+        print(f"[RAGOrchestrator] Ingesting {len(pdf_paths)} PDFs: {pdf_paths}")
+        all_chunks = []
+        
+        for pdf_path in pdf_paths:
+            print(f"[RAGOrchestrator] Processing: {pdf_path}")
+            chunks = self.loader.load_and_split(pdf_path)
+            all_chunks.extend(chunks)
+            print(f"[RAGOrchestrator] Added {len(chunks)} chunks from {pdf_path}")
+        
+        self.text_chunks = all_chunks
+        self.embedder.add_to_index(self.text_chunks)
+        self.retriever = RetrievalAgent(self.embedder.index)
+        print(f"[RAGOrchestrator] Multi-file ingestion complete with {len(self.text_chunks)} total chunks")
+
 
 
     def query(self, question: str) -> str:
