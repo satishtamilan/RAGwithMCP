@@ -161,6 +161,8 @@ If environment variables aren't working:
 4. Add tests if applicable
 5. Submit a pull request
 
+## Inspiration
+Inspired from this repo https://github.com/abvijaykumar/agentic-rag-mcp
 ## License
 
 MIT License
