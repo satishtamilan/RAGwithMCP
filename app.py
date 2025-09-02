@@ -30,15 +30,17 @@ if uploaded_files:
         try:
             with st.spinner(f"Processing and indexing {len(uploaded_files)} PDF(s)…"):
                 # Save all files temporarily
+                file_mapping = []  # (temp_path, original_name)
                 for i, file in enumerate(uploaded_files):
                     temp_filename = f"temp_pdf_{i}.pdf"
                     with open(temp_filename, "wb") as f:
                         f.write(file.read())
                     temp_files.append(temp_filename)
+                    file_mapping.append((temp_filename, file.name))
                 
-                # Initialize RAG and ingest all files
+                # Initialize RAG and ingest all files with original names
                 rag = RAGOrchestrator()
-                rag.ingest_multiple(temp_files)
+                rag.ingest_multiple_with_names(file_mapping)
                 st.session_state.rag = rag
                 st.session_state.uploaded_files = [f.name for f in uploaded_files]
                 
@@ -58,8 +60,17 @@ if st.session_state.uploaded_files:
         st.sidebar.write(f"  {i+1}. {filename}")
     
     if st.sidebar.button("🗑️ Clear All Documents"):
+        if st.session_state.rag:
+            st.session_state.rag.clear_documents()
         st.session_state.rag = None
         st.session_state.uploaded_files = []
+        # Clean up any lingering temporary files
+        import glob
+        for temp_file in glob.glob("temp_pdf_*.pdf"):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
         st.rerun()
 
 if st.session_state.rag:

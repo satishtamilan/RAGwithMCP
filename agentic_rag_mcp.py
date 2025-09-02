@@ -231,6 +231,43 @@ class RAGOrchestrator:
         self.retriever = RetrievalAgent(self.embedder.index, self.chunk_sources)
         print(f"[RAGOrchestrator] Multi-file ingestion complete with {len(self.text_chunks)} total chunks from {len(pdf_paths)} files")
 
+    def ingest_multiple_with_names(self, file_mapping: List[Tuple[str, str]]):
+        """Ingest multiple PDF files with original names for source tracking.
+        
+        Args:
+            file_mapping: List of tuples (temp_file_path, original_filename)
+        """
+        print(f"[RAGOrchestrator] Ingesting {len(file_mapping)} PDFs with original names")
+        all_chunks = []
+        all_sources = []
+        
+        for temp_path, original_name in file_mapping:
+            print(f"[RAGOrchestrator] Processing: {temp_path} -> {original_name}")
+            chunks = self.loader.load_and_split(temp_path)
+            
+            all_chunks.extend(chunks)
+            all_sources.extend([original_name] * len(chunks))
+            print(f"[RAGOrchestrator] Added {len(chunks)} chunks from {original_name}")
+        
+        self.text_chunks = all_chunks
+        self.chunk_sources = all_sources
+        self.source_files = [original_name for _, original_name in file_mapping]
+        
+        self.embedder.add_to_index(self.text_chunks)
+        self.retriever = RetrievalAgent(self.embedder.index, self.chunk_sources)
+        print(f"[RAGOrchestrator] Multi-file ingestion complete with {len(self.text_chunks)} total chunks from {len(file_mapping)} files")
+
+    def clear_documents(self):
+        """Clear all ingested documents and reset the system."""
+        print("[RAGOrchestrator] Clearing all documents")
+        self.text_chunks = []
+        self.chunk_sources = []
+        self.source_files = []
+        self.retriever = None
+        # Reset the embedder with a new empty index
+        self.embedder = EmbeddingAgent()
+        print("[RAGOrchestrator] All documents cleared")
+
 
 
     def query(self, question: str) -> dict:
