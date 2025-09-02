@@ -2,14 +2,6 @@
 
 An intelligent RAG system that combines document search with web search using LLM-based tool calling. The system automatically decides when to search the web based on document context quality and question requirements.
 
-This project was built as part of the Blog [Hands on — Agentic RAG (3/3) — Agentic Integrated with MCP Server](https://abvijaykumar.medium.com/hands-on-agentic-rag-3-3-agentic-integrated-with-mcp-server-055e1d601608)
-
-You can read the other 2 parts here
-* [Hands on — Agentic RAG (1/3)](https://abvijaykumar.medium.com/hands-on-agentic-rag-1-2-cdf375ad7e7a)
-* [Hands on — Agentic RAG (2/3) — Agentic ReRanking RAG](https://abvijaykumar.medium.com/hands-on-agentic-rag-2-3-agentic-reranking-rag-773b04cf4cdd)
-
-
-
 ## Features
 
 - **📄 Multiple PDF Support**: Upload and process multiple PDF documents simultaneously
