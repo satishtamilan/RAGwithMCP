@@ -65,22 +65,26 @@ class EmbeddingAgent:
 
 class RetrievalAgent:
     """Retrieve multiple sets of top-k similar chunks from FAISS for candidate diversity."""
-    def __init__(self, index:faiss.IndexFlatL2):
+    def __init__(self, index:faiss.IndexFlatL2, chunk_sources:List[str]=None):
         self.index = index
+        self.chunk_sources = chunk_sources or []
 
-    def retrieve_candidates(self, query:str, texts:List[str], n_candidates:int=3, k:int=5) -> List[List[str]]:
+    def retrieve_candidates(self, query:str, texts:List[str], n_candidates:int=3, k:int=5) -> Tuple[List[List[str]], List[List[str]]]:
         # For diversity, perturb the query embedding slightly for each candidate
         print(f"[RetrievalAgent] Retrieving {n_candidates} sets of top {k} chunks for query: {query}")
         base_emb = EmbeddingAgent().embed([query])[0]
         import numpy as np
         candidates = []
+        candidate_sources = []
         for i in range(n_candidates):
             perturbed_emb = np.array(base_emb, dtype="float32") + np.random.normal(0, 0.01, len(base_emb))
             D, I = self.index.search(np.array([perturbed_emb], dtype="float32"), k)
             retrieved = [texts[j] for j in I[0] if j < len(texts)]
+            sources = [self.chunk_sources[j] if j < len(self.chunk_sources) else "Unknown" for j in I[0] if j < len(texts)]
             candidates.append(retrieved)
+            candidate_sources.append(sources)
         print(f"[RetrievalAgent] Created {len(candidates)} candidate sets")
-        return candidates
+        return candidates, candidate_sources
 
 class QAAgent:
     """Answer questions given retrieved context."""
@@ -176,6 +180,8 @@ class RAGOrchestrator:
         self.loader = PDFLoaderAgent()
         self.embedder = EmbeddingAgent()
         self.text_chunks: List[str] = []
+        self.chunk_sources: List[str] = []  # Track source for each chunk
+        self.source_files: List[str] = []   # Track all source files
         self.retriever: RetrievalAgent = None
         self.qa = QAAgent()
         self.ranker = RankingAgent()
@@ -189,37 +195,53 @@ class RAGOrchestrator:
 
     def ingest(self, pdf_path:str):
         print(f"[RAGOrchestrator] Ingesting PDF: {pdf_path}")
-        self.text_chunks = self.loader.load_and_split(pdf_path)
+        chunks = self.loader.load_and_split(pdf_path)
+        self.text_chunks = chunks
+        # Track source for each chunk
+        import os
+        filename = os.path.basename(pdf_path)
+        self.chunk_sources = [filename] * len(chunks)
+        self.source_files = [filename]
+        
         self.embedder.add_to_index(self.text_chunks)
-        self.retriever = RetrievalAgent(self.embedder.index)
-        print(f"[RAGOrchestrator] Ingestion complete with {len(self.text_chunks)} chunks")
+        self.retriever = RetrievalAgent(self.embedder.index, self.chunk_sources)
+        print(f"[RAGOrchestrator] Ingestion complete with {len(self.text_chunks)} chunks from {filename}")
 
     def ingest_multiple(self, pdf_paths: List[str]):
         """Ingest multiple PDF files into the same vector index."""
         print(f"[RAGOrchestrator] Ingesting {len(pdf_paths)} PDFs: {pdf_paths}")
         all_chunks = []
+        all_sources = []
         
+        import os
         for pdf_path in pdf_paths:
             print(f"[RAGOrchestrator] Processing: {pdf_path}")
             chunks = self.loader.load_and_split(pdf_path)
+            filename = os.path.basename(pdf_path)
+            
             all_chunks.extend(chunks)
-            print(f"[RAGOrchestrator] Added {len(chunks)} chunks from {pdf_path}")
+            all_sources.extend([filename] * len(chunks))
+            print(f"[RAGOrchestrator] Added {len(chunks)} chunks from {filename}")
         
         self.text_chunks = all_chunks
+        self.chunk_sources = all_sources
+        self.source_files = [os.path.basename(path) for path in pdf_paths]
+        
         self.embedder.add_to_index(self.text_chunks)
-        self.retriever = RetrievalAgent(self.embedder.index)
-        print(f"[RAGOrchestrator] Multi-file ingestion complete with {len(self.text_chunks)} total chunks")
+        self.retriever = RetrievalAgent(self.embedder.index, self.chunk_sources)
+        print(f"[RAGOrchestrator] Multi-file ingestion complete with {len(self.text_chunks)} total chunks from {len(pdf_paths)} files")
 
 
 
-    def query(self, question: str) -> str:
+    def query(self, question: str) -> dict:
         print(f"[RAGOrchestrator] Querying for question: {question}")
         
         # Get document context first if available
         doc_context = ""
+        doc_sources = []
         if self.retriever:
             print(f"[RAGOrchestrator] Retrieving document context")
-            doc_context = self._search_documents_with_ranking(question)
+            doc_context, doc_sources = self._search_documents_with_ranking(question)
         
         # Define tools for LLM
         tools = [{
@@ -261,15 +283,23 @@ If the document context is sufficient to answer the question, provide the answer
             message = response.choices[0].message
             
             if message.tool_calls:
-                return self._handle_tool_calls(message, question, doc_context)
+                return self._handle_tool_calls(message, question, doc_context, doc_sources)
             else:
-                return message.content.strip()
+                return {
+                    "answer": message.content.strip(),
+                    "sources": doc_sources,
+                    "source_type": "documents"
+                }
                 
         except Exception as e:
             print(f"[RAGOrchestrator] Error: {e}")
-            return doc_context if doc_context else "Error processing query"
+            return {
+                "answer": doc_context if doc_context else "Error processing query",
+                "sources": doc_sources,
+                "source_type": "documents"
+            }
 
-    def _handle_tool_calls(self, message, question: str, doc_context: str) -> str:
+    def _handle_tool_calls(self, message, question: str, doc_context: str, doc_sources: List[str]) -> dict:
         """Handle LLM tool calls."""
         print(f"[RAGOrchestrator] LLM decided to search web")
         
@@ -297,16 +327,27 @@ Answer:"""
                     temperature=0.2,
                     max_tokens=500
                 )
-                return resp.choices[0].message.content.strip()
+                
+                # Combine document sources with web search indication
+                all_sources = doc_sources + ["Web Search"]
+                return {
+                    "answer": resp.choices[0].message.content.strip(),
+                    "sources": all_sources,
+                    "source_type": "documents + web"
+                }
         
-        return "Tool call failed"
+        return {
+            "answer": "Tool call failed",
+            "sources": doc_sources,
+            "source_type": "documents"
+        }
     
-    def _search_documents_with_ranking(self, query: str) -> str:
+    def _search_documents_with_ranking(self, query: str) -> Tuple[str, List[str]]:
         """Perform document search with multi-candidate ranking."""
         print(f"[RAGOrchestrator] Starting ranked document search for: {query}")
         
         # Step 1: Retrieve multiple candidate contexts
-        candidate_contexts = self.retriever.retrieve_candidates(
+        candidate_contexts, candidate_sources = self.retriever.retrieve_candidates(
             query, self.text_chunks, 
             n_candidates=self.n_candidates, 
             k=self.k
@@ -319,7 +360,9 @@ Answer:"""
         final_answer, chosen_idx = self.ranker.rank(query, candidate_answers, candidate_contexts)
         
         print(f"[RAGOrchestrator] Selected answer from candidate #{chosen_idx+1}")
-        return final_answer
+        # Get unique sources from the chosen candidate
+        chosen_sources = list(set(candidate_sources[chosen_idx])) if chosen_idx < len(candidate_sources) else []
+        return final_answer, chosen_sources
     
 
 
